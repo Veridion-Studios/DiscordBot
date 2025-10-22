@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Collection, REST, Routes } from 'discord.js';
+import { Client, GatewayIntentBits, Collection } from 'discord.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -15,7 +15,12 @@ client.commands = new Collection();
 // Load commands
 const commandFiles = fs.readdirSync('./commands').filter(f => f.endsWith('.js'));
 for (const file of commandFiles) {
-  const command = await import(`./commands/${file}`);
+  const mod = await import(`./commands/${file}`);
+  const command = mod.default ?? mod;
+  if (!command?.data) {
+    console.warn(`Skipping ${file}, no "data" export`);
+    continue;
+  }
   client.commands.set(command.data.name, command);
 }
 
@@ -23,17 +28,18 @@ for (const file of commandFiles) {
 async function deployCommands() {
   const commands = [];
   for (const file of commandFiles) {
-    const command = await import(`./commands/${file}`);
+    const mod = await import(`./commands/${file}`);
+    const command = mod.default ?? mod;
+    if (!command?.data) {
+      console.warn(`Skipping ${file}, no "data" export`);
+      continue;
+    }
     commands.push(command.data.toJSON());
   }
 
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
   try {
-    await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: commands }
-    );
+    // register global application commands using the logged-in client
+    await client.application.commands.set(commands);
     console.log('✅ Slash commands deployed successfully.');
   } catch (error) {
     console.error('❌ Failed to deploy commands:', error);
