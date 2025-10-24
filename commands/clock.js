@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import fs from 'fs';
+import { getMemberById, upsertMember } from '../lib/airtableClient.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -15,30 +15,45 @@ export default {
             )),
   async execute(interaction) {
     const action = interaction.options.getString('action');
-    const teamData = JSON.parse(fs.readFileSync('./data/team.json', 'utf-8'));
     const userId = interaction.user.id;
     const timestamp = Math.floor(Date.now() / 1000);
 
-    if (!teamData.members[userId]) {
-      teamData.members[userId] = {
+    // fetch existing member from Airtable (if any)
+    let member = await getMemberById(userId);
+
+    if (!member) {
+      member = {
+        discordId: userId,
         name: interaction.user.username,
         avatarURL: interaction.user.displayAvatarURL(),
         clockedIn: false,
         clockIn: null,
-        clockOut: null
+        clockOut: null,
       };
     }
 
     if (action === 'in') {
-      teamData.members[userId].clockedIn = true;
-      teamData.members[userId].clockIn = timestamp;
+      member.clockedIn = true;
+      member.clockIn = timestamp;
       await interaction.reply(`✅ You clocked in at <t:${timestamp}:t>`);
     } else {
-      teamData.members[userId].clockedIn = false;
-      teamData.members[userId].clockOut = timestamp;
+      member.clockedIn = false;
+      member.clockOut = timestamp;
       await interaction.reply(`⏱️ You clocked out at <t:${timestamp}:t>`);
     }
 
-    fs.writeFileSync('./data/team.json', JSON.stringify(teamData, null, 2));
+    // persist to Airtable
+    try {
+      await upsertMember(userId, {
+        name: member.name,
+        avatarURL: member.avatarURL,
+        clockedIn: member.clockedIn,
+        clockIn: member.clockIn,
+        clockOut: member.clockOut,
+      });
+    } catch (err) {
+      console.error('Failed to save member to Airtable:', err);
+      await interaction.followUp({ content: 'Failed to save to Airtable. Check logs.', ephemeral: true });
+    }
   },
 };

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import fs from 'fs';
+import { listMembers } from '../lib/airtableClient.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -7,37 +7,39 @@ export default {
     .setDescription('Show all team members and their clock-in/out status'),
 
   async execute(interaction) {
-    const teamData = JSON.parse(fs.readFileSync('./data/team.json', 'utf-8'));
+    const members = await listMembers();
     const embed = new EmbedBuilder()
       .setTitle('👥 Team Status')
       .setColor(0x7289da)
-      .setThumbnail('https://example.com/team-logo.png') // Optional: Team logo
+      .setThumbnail('https://example.com/team-logo.png') // Team logo
       .setFooter({ text: 'Updated', iconURL: 'https://example.com/footer-icon.png' })
       .setTimestamp();
 
-    // Loop through all team members
-    for (const member of Object.values(teamData.members)) {
-      const status = member.clockedIn
-        ? `🟢 Clocked in <t:${member.clockIn}:R>`
-        : member.clockOut
-        ? `🔴 Clocked out <t:${member.clockOut}:R>`
-        : '⚪ No record';
+    for (const member of members) {
+      // Prefer Name, fallback to DiscordId, else show record ID
+      const name = member.fields?.Name 
+        ?? member.fields?.DiscordId 
+        ?? member.id 
+        ?? 'Unknown';
 
-      // Add a "divider" for visual separation
-      embed.addFields({
-        name: `──────────`,
-        value: '\u200B', // empty value
-      });
+      // Ensure clockIn/clockOut are numbers
+      const clockIn = Number(member.fields?.['Clock In']) || null;
+      const clockOut = Number(member.fields?.['Clock Out']) || null;
+      const avatarURL = member.fields?.AvatarURL;
 
-      // Add member field with avatar and status
-      embed.addFields({
-        name: `${member.name}`,
-        value: `${status}`,
-        inline: true,
-      });
+      let status;
+      if (clockIn && (!clockOut || clockIn > clockOut)) {
+        status = `🟢 Clocked in <t:${clockIn}:R>`;
+      } else if (clockOut) {
+        status = `🔴 Clocked out <t:${clockOut}:R>`;
+      } else {
+        status = '⚪ No clock data';
+      }
 
-      // Use member avatar as a small icon via inline field
-      embed.setThumbnail(member.avatarURL);
+      embed.addFields({ name: `──────────`, value: '\u200B' });
+      embed.addFields({ name: name, value: status, inline: true });
+
+      // Set thumbnail only once, outside the loop
     }
 
     await interaction.reply({ embeds: [embed] });
